@@ -18,7 +18,10 @@ class DHParticleSwarmOptimizer:
         orientation_weight=0.1,
         device=None,
         dtype=torch.float32,
-        vmax_scale=0.1
+        vmax_scale=0.1,
+        topology="ring",
+        neighborhood_size=1,
+        elite_size=3,
         
     ):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -62,6 +65,10 @@ class DHParticleSwarmOptimizer:
 
         self.diversity_history = []
         self.velocity_diversity_history = []
+
+        self.topology = topology
+        self.neighborhood_size = neighborhood_size
+        self.elite_size = elite_size
 
     def initialize_particles(self):
         """
@@ -137,8 +144,21 @@ class DHParticleSwarmOptimizer:
         r2 = torch.rand_like(self.particles)
 
         cognitive = self.c1 * r1 * (self.pbest_particles - self.particles)
-        social = self.c2 * r2 * (self.gbest_particle.unsqueeze(0) - self.particles)
+        social = torch.zeros_like(self.particles)
 
+        for i in range(self.P):
+
+            elite_center = self.compute_local_elite(i)
+
+            social[i] = (
+                self.c2
+                * r2[i]
+                * (
+                    elite_center
+                    - self.particles[i]
+                )
+            )
+            
         self.velocities = self.w * self.velocities + cognitive + social
 
         self.velocities = torch.clamp(
@@ -197,3 +217,60 @@ class DHParticleSwarmOptimizer:
         )
 
         return position_diversity, velocity_diversity
+
+
+    def get_neighbors(self, idx):
+
+        if self.topology == "global":
+            return torch.arange(
+                self.P,
+                device=self.device
+            )
+
+        elif self.topology == "ring":
+
+            neighbors = []
+
+            for offset in range(
+                -self.neighborhood_size,
+                self.neighborhood_size + 1
+            ):
+
+                neighbor_idx = (idx + offset) % self.P
+                neighbors.append(neighbor_idx)
+
+            return torch.tensor(
+                neighbors,
+                device=self.device
+            )
+
+        else:
+            raise ValueError(
+                f"Unknown topology: {self.topology}"
+            )
+
+
+    def compute_local_elite(self, particle_idx):
+
+        neighbors = self.get_neighbors(particle_idx)
+
+        neighbor_particles = self.pbest_particles[neighbors]
+        neighbor_fitness = self.pbest_fitness[neighbors]
+
+        sorted_idx = torch.argsort(neighbor_fitness)
+
+        elite_idx = sorted_idx[:self.elite_size]
+
+        elite_particles = neighbor_particles[elite_idx]
+        elite_fitness = neighbor_fitness[elite_idx]
+
+        weights = 1.0 / (elite_fitness + 1e-8)
+
+        weights = weights / torch.sum(weights)
+
+        elite_center = torch.sum(
+            weights.view(-1,1,1) * elite_particles,
+            dim=0
+        )
+
+        return elite_center
