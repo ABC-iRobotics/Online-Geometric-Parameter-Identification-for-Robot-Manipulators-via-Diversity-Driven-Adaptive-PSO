@@ -3,7 +3,7 @@ import torch
 from utils import forward_kinematics_particles, particle_fitness
 
 
-class DHParticleSwarmOptimizer:
+class PSO:
     def __init__(
         self,
         nominal_dh,
@@ -58,6 +58,10 @@ class DHParticleSwarmOptimizer:
         )
         self.vmax_scale = vmax_scale
         self.vmax = self.vmax_scale * (self.upper_bounds - self.lower_bounds)
+
+        self.diversity_history = []
+        self.velocity_diversity_history = []
+
 
     def initialize_particles(self):
         """
@@ -161,6 +165,11 @@ class DHParticleSwarmOptimizer:
 
         self.update_particles()
 
+        position_diversity, velocity_diversity = self.compute_diversity()
+
+        self.diversity_history.append(position_diversity.item())
+        self.velocity_diversity_history.append(velocity_diversity.item())
+
         return self.gbest_particle, self.gbest_fitness
 
     def optimize(self, joint_values, T_measured, iterations=100, print_every=10):
@@ -174,3 +183,17 @@ class DHParticleSwarmOptimizer:
                 print(f"Iter {it:04d} | Best fitness: {best_fitness.item():.8f}")
 
         return self.gbest_particle, self.gbest_fitness, history
+    
+    def compute_diversity(self):
+        centroid = torch.mean(self.particles, dim=0, keepdim=True)
+        position_diversity = torch.mean(
+            torch.norm(self.particles - centroid, dim=(1, 2))
+        )
+
+        velocity_centroid = torch.mean(self.velocities, dim=0, keepdim=True)
+
+        velocity_diversity = torch.mean(
+            torch.norm(self.velocities - velocity_centroid, dim=(1, 2))
+        )
+
+        return position_diversity, velocity_diversity

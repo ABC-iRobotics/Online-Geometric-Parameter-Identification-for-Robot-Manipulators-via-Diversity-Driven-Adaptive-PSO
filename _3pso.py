@@ -1,10 +1,9 @@
 import torch
-import numpy as np
 
 from utils import forward_kinematics_particles, particle_fitness
 
 
-class DHParticleSwarmOptimizer:
+class PSO_topology_elit:
     def __init__(
         self,
         nominal_dh,
@@ -20,9 +19,9 @@ class DHParticleSwarmOptimizer:
         device=None,
         dtype=torch.float32,
         vmax_scale=0.1,
-        topology="ring",
         neighborhood_size=1,
-        elite_size=3,
+        elite_size=1,
+        
         
     ):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -67,13 +66,8 @@ class DHParticleSwarmOptimizer:
         self.diversity_history = []
         self.velocity_diversity_history = []
 
-        self.topology = topology
         self.neighborhood_size = neighborhood_size
         self.elite_size = elite_size
-
-        self.w_min = 0.4
-        self.w_max = 0.9
-        self.reference_dv = 0.001
 
     def initialize_particles(self):
         """
@@ -163,12 +157,8 @@ class DHParticleSwarmOptimizer:
                     - self.particles[i]
                 )
             )
-        adaptive_w = self.compute_adaptive_inertia()
-        self.velocities = (
-            adaptive_w * self.velocities
-            + cognitive
-            + social
-        )
+            
+        self.velocities = self.w * self.velocities + cognitive + social
 
         self.velocities = torch.clamp(
             self.velocities,
@@ -230,33 +220,20 @@ class DHParticleSwarmOptimizer:
 
     def get_neighbors(self, idx):
 
-        if self.topology == "global":
-            return torch.arange(
-                self.P,
-                device=self.device
-            )
+        neighbors = []
 
-        elif self.topology == "ring":
+        for offset in range(
+            -self.neighborhood_size,
+            self.neighborhood_size + 1
+        ):
 
-            neighbors = []
+            neighbor_idx = (idx + offset) % self.P
+            neighbors.append(neighbor_idx)
 
-            for offset in range(
-                -self.neighborhood_size,
-                self.neighborhood_size + 1
-            ):
-
-                neighbor_idx = (idx + offset) % self.P
-                neighbors.append(neighbor_idx)
-
-            return torch.tensor(
-                neighbors,
-                device=self.device
-            )
-
-        else:
-            raise ValueError(
-                f"Unknown topology: {self.topology}"
-            )
+        return torch.tensor(
+            neighbors,
+            device=self.device
+        )
 
 
     def compute_local_elite(self, particle_idx):
@@ -283,21 +260,3 @@ class DHParticleSwarmOptimizer:
         )
 
         return elite_center
-
-    def compute_adaptive_inertia(self):
-
-        if len(self.velocity_diversity_history) == 0:
-            return self.w_max
-
-        dv = self.velocity_diversity_history[-1]
-
-        normalized_dv = min(
-            dv / self.reference_dv,
-            1.0
-        )
-
-        w = self.w_max - (
-            self.w_max - self.w_min
-        ) * normalized_dv
-
-        return float(w)

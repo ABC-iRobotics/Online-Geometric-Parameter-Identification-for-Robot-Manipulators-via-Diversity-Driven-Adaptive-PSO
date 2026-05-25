@@ -4,7 +4,7 @@ import numpy as np
 from utils import forward_kinematics_particles, particle_fitness
 
 
-class DHParticleSwarmOptimizer:
+class PSO_final:
     def __init__(
         self,
         nominal_dh,
@@ -22,7 +22,7 @@ class DHParticleSwarmOptimizer:
         vmax_scale=0.1,
         topology="ring",
         neighborhood_size=1,
-        elite_size=3,
+        elite_size=1,
         
     ):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")

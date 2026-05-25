@@ -1,23 +1,60 @@
+from email import feedparser
 import time
 import torch
+import numpy as np
 
 from utils import *
-from _2pso_topology import DHParticleSwarmOptimizer
+from _1pso import PSO as PSO_1
+from _2pso import PSO_topology as PSO_2
+from _3pso import PSO_topology_elit as PSO_3
+from _4pso import PSO_aging as PSO_4
+from _5pso import PSO_final as PSO_5
 
+import argparse
+
+PSO_VARIANTS = {
+    "PSO_1": PSO_1,
+    "PSO_2": PSO_2,
+    "PSO_3": PSO_3,
+    "PSO_4": PSO_4,
+    "PSO_5": PSO_5,
+}
 
 def main():
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        "--pso",
+        type=str,
+        default="PSO_5",
+        choices=PSO_VARIANTS.keys()
+    )
+
+    args = parser.parse_args()
+
+    PSO = PSO_VARIANTS[args.pso]
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = torch.float32
 
     print("Device:", device)
 
+    seed = 1
+
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    
     # ------------------------------------------------------------
     # Robot / trajectory settings
     # ------------------------------------------------------------
 
     N = 6
     K = 500
-    P = 128
+    P = 32
 
     joint_types = ["R"] * N
 
@@ -88,7 +125,7 @@ def main():
     # PSO
     # ------------------------------------------------------------
 
-    optimizer = DHParticleSwarmOptimizer(
+    optimizer = PSO(
         nominal_dh=nominal_dh,
         lower_bounds=lower_bounds,
         upper_bounds=upper_bounds,
@@ -142,9 +179,8 @@ def main():
                 f"Measurement {k + 1:04d}/{K} | "
                 f"Best fitness: {best_fitness.item():.8f} | "
                 f"Time: {measurement_time:.4f}s | "
-                f"FK/s: {fk_per_second:,.0f} | "
                 f"Dx: {optimizer.diversity_history[-1]:.6f} | "
-                f"Dv: {optimizer.velocity_diversity_history[-1]:.6f}"
+                f"Dv: {optimizer.velocity_diversity_history[-1]:.6f} |"
             )
 
     if device == "cuda":

@@ -1,24 +1,99 @@
+from numpy import dtype
+import numpy as np
 import time
 import torch
+import csv
 
 from utils import *
-from _5pso_topology_switch import DHParticleSwarmOptimizer
+from _1pso import PSO
+from _2pso import PSO_topology
+from _3pso import PSO_topology_elit
+from _4pso import PSO_aging
+from _5pso import PSO_final
+
+def generate_joint_trajectory(
+    trajectory_id,
+    K,
+    N,
+    device,
+    dtype,
+    seed=None
+):
+    if seed is not None:
+        torch.manual_seed(seed)
+
+    t = torch.linspace(0, 2 * torch.pi, K, device=device, dtype=dtype)
+    joint_values = torch.zeros(K, N, device=device, dtype=dtype)
+
+    if trajectory_id == "smooth_sine":
+        for i in range(N):
+            joint_values[:, i] = 0.5 * torch.sin(t + i * 0.3)
+
+    elif trajectory_id == "multi_frequency":
+        for i in range(N):
+            joint_values[:, i] = (
+                0.35 * torch.sin(t + i * 0.3)
+                + 0.20 * torch.sin(2.7 * t + i * 0.5)
+                + 0.10 * torch.sin(5.0 * t + i * 0.2)
+            )
+
+    elif trajectory_id == "slow_sine":
+        for i in range(N):
+            joint_values[:, i] = 0.35 * torch.sin(0.4 * t + i * 0.2)
+
+    elif trajectory_id == "aggressive_sine":
+        for i in range(N):
+            joint_values[:, i] = (
+                0.75 * torch.sin(1.5 * t + i * 0.4)
+                + 0.25 * torch.sin(4.0 * t + i * 0.3)
+            )
+
+    elif trajectory_id == "random_smooth":
+        raw = torch.randn(K, N, device=device, dtype=dtype)
+
+        window = 25
+        kernel = torch.ones(window, device=device, dtype=dtype) / window
+
+        for i in range(N):
+            signal = raw[:, i].view(1, 1, -1)
+            padded = torch.nn.functional.pad(
+                signal,
+                (window // 2, window // 2),
+                mode="reflect"
+            )
+            smoothed = torch.nn.functional.conv1d(
+                padded,
+                kernel.view(1, 1, -1)
+            ).view(-1)
+
+            smoothed = smoothed[:K]
+            smoothed = smoothed / (torch.max(torch.abs(smoothed)) + 1e-8)
+            joint_values[:, i] = 0.6 * smoothed
+
+    else:
+        raise ValueError(f"Unknown trajectory_id: {trajectory_id}")
+
+    return joint_values
 
 
-def main():
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    dtype = torch.float32
+def run_single_experiment(
+    method_name,
+    trajectory_id,
+    seed,
+    optimizer_class,
+    K=500,
+    P=32,
+    pso_iterations_per_measurement=5,
+    device=None,
+    dtype=torch.float32,
+):
+    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
-    print("Device:", device)
-
-    # ------------------------------------------------------------
-    # Robot / trajectory settings
-    # ------------------------------------------------------------
+    torch.manual_seed(seed)
+    if device == "cuda":
+        torch.cuda.manual_seed_all(seed)
 
     N = 6
-    K = 500
-    P = 32
-
     joint_types = ["R"] * N
 
     nominal_dh = torch.tensor([
@@ -30,65 +105,42 @@ def main():
         [0.0, 0.1, 0.0, 0.0],
     ], device=device, dtype=dtype)
 
-    # ------------------------------------------------------------
-    # Joint trajectory
-    # ------------------------------------------------------------
-
-    t = torch.linspace(0, 2 * torch.pi, K, device=device, dtype=dtype)
-
-    joint_values = torch.zeros(K, N, device=device, dtype=dtype)
-
-    for i in range(N):
-        joint_values[:, i] = 0.5 * torch.sin(t + i * 0.3)
-
-    # ------------------------------------------------------------
-    # True DH model
-    # ------------------------------------------------------------
+    joint_values = generate_joint_trajectory(
+        trajectory_id=trajectory_id,
+        K=K,
+        N=N,
+        device=device,
+        dtype=dtype,
+        seed=seed,
+    )
 
     true_dh = nominal_dh.clone()
-
     true_dh[:, 0] += 0.01 * torch.randn(N, device=device, dtype=dtype)
     true_dh[:, 1] += 0.002 * torch.randn(N, device=device, dtype=dtype)
     true_dh[:, 2] += 0.002 * torch.randn(N, device=device, dtype=dtype)
     true_dh[:, 3] += 0.01 * torch.randn(N, device=device, dtype=dtype)
 
-    true_particle = true_dh.unsqueeze(0)
-
-    # ------------------------------------------------------------
-    # Generate measured poses
-    # ------------------------------------------------------------
     T_measured = simulate_measurements_from_dh(
         joint_values=joint_values,
         true_dh_params=true_dh,
         position_noise_std=0.003,
         orientation_noise_std=0.002,
-        joint_types=joint_types
+        joint_types=joint_types,
     )
-
-    # ------------------------------------------------------------
-    # DH search bounds
-    # ------------------------------------------------------------
 
     lower_bounds = nominal_dh.clone()
     upper_bounds = nominal_dh.clone()
 
     lower_bounds[:, 0] -= 0.03
     upper_bounds[:, 0] += 0.03
-
     lower_bounds[:, 1] -= 0.02
     upper_bounds[:, 1] += 0.02
-
     lower_bounds[:, 2] -= 0.02
     upper_bounds[:, 2] += 0.02
-
     lower_bounds[:, 3] -= 0.03
     upper_bounds[:, 3] += 0.03
 
-    # ------------------------------------------------------------
-    # PSO
-    # ------------------------------------------------------------
-
-    optimizer = DHParticleSwarmOptimizer(
+    optimizer = optimizer_class(
         nominal_dh=nominal_dh,
         lower_bounds=lower_bounds,
         upper_bounds=upper_bounds,
@@ -101,15 +153,11 @@ def main():
         orientation_weight=0.1,
         device=device,
         dtype=dtype,
-        vmax_scale=0.1
+        vmax_scale=0.1,
     )
 
-    # ------------------------------------------------------------
-    # ONLINE / STREAMING PSO
-    # ------------------------------------------------------------
-
-    pso_iterations_per_measurement = 5
     history = []
+    measurement_times = []
 
     if device == "cuda":
         torch.cuda.synchronize()
@@ -118,53 +166,34 @@ def main():
 
     for k in range(K):
         measurement_start = time.time()
+
         joint_values_so_far = joint_values[:k + 1]
         T_measured_so_far = T_measured[:k + 1]
 
         for _ in range(pso_iterations_per_measurement):
-
             best_dh, best_fitness = optimizer.step(
                 joint_values=joint_values_so_far,
-                T_measured=T_measured_so_far
+                T_measured=T_measured_so_far,
             )
+
         if device == "cuda":
             torch.cuda.synchronize()
 
-        measurement_time = time.time() - measurement_start
+        measurement_times.append(time.time() - measurement_start)
         history.append(best_fitness.item())
-        
-        if k % 10 == 0:
-            current_measurements = joint_values_so_far.shape[0]
-            fk_evaluations = P * current_measurements * pso_iterations_per_measurement
-            fk_per_second = fk_evaluations / measurement_time
-
-            print(
-                f"Measurement {k + 1:04d}/{K} | "
-                f"Best fitness: {best_fitness.item():.8f} | "
-                f"Time: {measurement_time:.4f}s | "
-                f"Dx: {optimizer.diversity_history[-1]:.6f} | "
-                f"Dv: {optimizer.velocity_diversity_history[-1]:.6f} |"
-            )
 
     if device == "cuda":
         torch.cuda.synchronize()
 
-    end = time.time()
-
-    # ------------------------------------------------------------
-    # NOMINAL DH FITNESS
-    # ------------------------------------------------------------
+    total_runtime = time.time() - start
 
     with torch.no_grad():
-
         nominal_particle = nominal_dh.unsqueeze(0)
-
         T_nominal = forward_kinematics_particles(
             joint_values=joint_values,
             particles=nominal_particle,
             joint_types=joint_types,
         )
-
         nominal_fitness = particle_fitness(
             T_measured=T_measured,
             T_particles=T_nominal,
@@ -173,71 +202,130 @@ def main():
             reduction="mean",
         )[0]
 
-    # ------------------------------------------------------------
-    # OPTIMIZED DH FITNESS
-    # ------------------------------------------------------------
-
-    with torch.no_grad():
-
         best_particle = best_dh.unsqueeze(0)
-
         T_best = forward_kinematics_particles(
             joint_values=joint_values,
             particles=best_particle,
             joint_types=joint_types,
         )
-
         optimized_fitness = particle_fitness(
             T_measured=T_measured,
             T_particles=T_best,
             position_weight=1.0,
-            orientation_weight=0.01,
+            orientation_weight=0.1,
             reduction="mean",
         )[0]
 
-    # ------------------------------------------------------------
-    # Results
-    # ------------------------------------------------------------
+    dh_error = best_dh - true_dh
 
-    print("\nOptimization finished.")
-    print("Time:", end - start, "s")
-    print("Best fitness:", best_fitness.item())
+    result = {
+        "method": method_name,
+        "trajectory_id": trajectory_id,
+        "seed": seed,
 
-    print("\nTrue DH:")
-    print(true_dh.detach().cpu())
+        "final_best_fitness": best_fitness.item(),
 
-    print("\nEstimated DH:")
-    print(best_dh.detach().cpu())
+        "nominal_fitness": nominal_fitness.item(),
+        "optimized_fitness": optimized_fitness.item(),
 
-    print("\nDH error:")
-    print((best_dh - true_dh).detach().cpu())
+        "improvement_ratio":
+            nominal_fitness.item() / optimized_fitness.item(),
 
-    print("\nAbsolute DH error mean:")
-    print(torch.mean(torch.abs(best_dh - true_dh)).item())
+        "absolute_DH_error_mean":
+            torch.mean(torch.abs(dh_error)).item(),
 
-    print("Mean theta error:")
-    print(torch.mean(torch.abs(best_dh[:, 0] - true_dh[:, 0])).item())
+        "theta_error":
+            torch.mean(torch.abs(dh_error[:, 0])).item(),
 
-    print("Mean d error:")
-    print(torch.mean(torch.abs(best_dh[:, 1] - true_dh[:, 1])).item())
+        "d_error":
+            torch.mean(torch.abs(dh_error[:, 1])).item(),
 
-    print("Mean a error:")
-    print(torch.mean(torch.abs(best_dh[:, 2] - true_dh[:, 2])).item())
+        "a_error":
+            torch.mean(torch.abs(dh_error[:, 2])).item(),
 
-    print("Mean alpha error:")
-    print(torch.mean(torch.abs(best_dh[:, 3] - true_dh[:, 3])).item())
+        "alpha_error":
+            torch.mean(torch.abs(dh_error[:, 3])).item(),
 
-    print("\nNominal DH fitness:")
-    print(nominal_fitness.item())
+        "runtime_total": total_runtime,
 
-    print("\nOptimized DH fitness:")
-    print(optimized_fitness.item())
+        "runtime_per_measurement":
+            sum(measurement_times) / len(measurement_times),
 
-    print("\nImprovement ratio:")
-    print(nominal_fitness.item() / optimized_fitness.item())
+        "mean_Dx":
+            float(np.mean(optimizer.diversity_history)),
+
+        "min_Dx":
+            float(np.min(optimizer.diversity_history)),
+
+        "mean_Dv":
+            float(np.mean(optimizer.velocity_diversity_history)),
+
+        "min_Dv":
+            float(np.min(optimizer.velocity_diversity_history)),
+
+        "max_Dv":
+            float(np.max(optimizer.velocity_diversity_history)),
+
+        # ------------------------------------------------
+        # FUZZY PARAMETER STATES
+        # ------------------------------------------------
+
+        "final_w":
+            getattr(optimizer, "current_w", np.nan),
+
+        "final_c1":
+            getattr(optimizer, "current_c1", np.nan),
+
+        "final_c2":
+            getattr(optimizer, "current_c2", np.nan),
+
+        "final_vmax_scale":
+            getattr(optimizer, "current_vmax_scale", np.nan),
+    }
+
+    return result
+
+def main():
+
+    trajectory_ids = [
+        "smooth_sine",
+        "multi_frequency",
+        "slow_sine",
+        "aggressive_sine",
+        "random_smooth",
+    ]
+
+    seeds = range(20)
+
+    methods = {
+        "PSO": PSO,
+        "PSO_topology": PSO_topology,
+        "PSO_ring_elite": PSO_topology_elit,
+        "PSO_aging": PSO_aging,
+        "PSO_final": PSO_final,
+    }
+
+    results = []
+
+    for method_name, optimizer_class in methods.items():
+        for trajectory_id in trajectory_ids:
+            for seed in seeds:
+                print(method_name, trajectory_id, seed)
+
+                result = run_single_experiment(
+                    method_name=method_name,
+                    trajectory_id=trajectory_id,
+                    seed=seed,
+                    optimizer_class=optimizer_class,
+                )
+
+                results.append(result)
+
+    with open("benchmark_results.csv", "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=results[0].keys())
+        writer.writeheader()
+        writer.writerows(results)
 
     
-
-
 if __name__ == "__main__":
     main()

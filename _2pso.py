@@ -1,10 +1,9 @@
 import torch
-import numpy as np
 
 from utils import forward_kinematics_particles, particle_fitness
 
 
-class DHParticleSwarmOptimizer:
+class PSO_topology:
     def __init__(
         self,
         nominal_dh,
@@ -20,9 +19,8 @@ class DHParticleSwarmOptimizer:
         device=None,
         dtype=torch.float32,
         vmax_scale=0.1,
-        topology="ring",
         neighborhood_size=1,
-        elite_size=3,
+        
         
     ):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -54,11 +52,6 @@ class DHParticleSwarmOptimizer:
             device=self.device,
             dtype=self.dtype,
         )
-        self.pbest_age = torch.zeros(
-            self.P,
-            device=self.device,
-            dtype=self.dtype,
-        )
 
         self.gbest_particle = None
         self.gbest_fitness = torch.tensor(
@@ -72,14 +65,7 @@ class DHParticleSwarmOptimizer:
         self.diversity_history = []
         self.velocity_diversity_history = []
 
-        self.topology = topology
         self.neighborhood_size = neighborhood_size
-        self.elite_size = elite_size
-
-        self.w_min = 0.4
-        self.w_max = 0.9
-        self.reference_dv = 0.001
-        self.age_lambda = 0.02
 
     def initialize_particles(self):
         """
@@ -138,12 +124,7 @@ class DHParticleSwarmOptimizer:
 
         improved = fitness < pbest_current_fitness
 
-        self.pbest_age += 1
-
-        self.pbest_age[improved] = 0
-
         self.pbest_particles[improved] = self.particles[improved]
-
         self.pbest_fitness = pbest_current_fitness
         self.pbest_fitness[improved] = fitness[improved]
 
@@ -164,22 +145,18 @@ class DHParticleSwarmOptimizer:
 
         for i in range(self.P):
 
-            elite_center = self.compute_local_elite(i)
+            local_best = self.compute_local_best(i)
 
             social[i] = (
                 self.c2
                 * r2[i]
                 * (
-                    elite_center
+                    local_best
                     - self.particles[i]
                 )
             )
-        adaptive_w = self.compute_adaptive_inertia()
-        self.velocities = (
-            adaptive_w * self.velocities
-            + cognitive
-            + social
-        )
+            
+        self.velocities = self.w * self.velocities + cognitive + social
 
         self.velocities = torch.clamp(
             self.velocities,
@@ -241,80 +218,31 @@ class DHParticleSwarmOptimizer:
 
     def get_neighbors(self, idx):
 
-        if self.topology == "global":
-            return torch.arange(
-                self.P,
-                device=self.device
-            )
+        neighbors = []
 
-        elif self.topology == "ring":
+        for offset in range(
+            -self.neighborhood_size,
+            self.neighborhood_size + 1
+        ):
 
-            neighbors = []
+            neighbor_idx = (idx + offset) % self.P
+            neighbors.append(neighbor_idx)
 
-            for offset in range(
-                -self.neighborhood_size,
-                self.neighborhood_size + 1
-            ):
-
-                neighbor_idx = (idx + offset) % self.P
-                neighbors.append(neighbor_idx)
-
-            return torch.tensor(
-                neighbors,
-                device=self.device
-            )
-
-        else:
-            raise ValueError(
-                f"Unknown topology: {self.topology}"
-            )
+        return torch.tensor(
+            neighbors,
+            device=self.device
+        )
 
 
-    def compute_local_elite(self, particle_idx):
+    def compute_local_best(self, particle_idx):
 
         neighbors = self.get_neighbors(particle_idx)
 
         neighbor_particles = self.pbest_particles[neighbors]
         neighbor_fitness = self.pbest_fitness[neighbors]
 
-        sorted_idx = torch.argsort(neighbor_fitness)
+        best_idx = torch.argmin(neighbor_fitness)
 
-        elite_idx = sorted_idx[:self.elite_size]
+        local_best = neighbor_particles[best_idx]
 
-        elite_particles = neighbor_particles[elite_idx]
-        elite_fitness = neighbor_fitness[elite_idx]
-
-        elite_ages = self.pbest_age[neighbors][elite_idx]
-
-        fitness_weights = 1.0 / (elite_fitness + 1e-8)
-
-        age_weights = torch.exp(-self.age_lambda * elite_ages)
-
-        weights = (fitness_weights* age_weights)
-
-        weights = weights / torch.sum(weights)
-
-        elite_center = torch.sum(
-            weights.view(-1,1,1) * elite_particles,
-            dim=0
-        )
-
-        return elite_center
-
-    def compute_adaptive_inertia(self):
-
-        if len(self.velocity_diversity_history) == 0:
-            return self.w_max
-
-        dv = self.velocity_diversity_history[-1]
-
-        normalized_dv = min(
-            dv / self.reference_dv,
-            1.0
-        )
-
-        w = self.w_max - (
-            self.w_max - self.w_min
-        ) * normalized_dv
-
-        return float(w)
+        return local_best
