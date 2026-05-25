@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 
 from utils import forward_kinematics_particles, particle_fitness
 
@@ -53,6 +54,11 @@ class DHParticleSwarmOptimizer:
             device=self.device,
             dtype=self.dtype,
         )
+        self.pbest_age = torch.zeros(
+            self.P,
+            device=self.device,
+            dtype=self.dtype,
+        )
 
         self.gbest_particle = None
         self.gbest_fitness = torch.tensor(
@@ -69,6 +75,11 @@ class DHParticleSwarmOptimizer:
         self.topology = topology
         self.neighborhood_size = neighborhood_size
         self.elite_size = elite_size
+
+        self.w_min = 0.4
+        self.w_max = 0.9
+        self.reference_dv = 0.001
+        self.age_lambda = 0.02
 
     def initialize_particles(self):
         """
@@ -127,7 +138,12 @@ class DHParticleSwarmOptimizer:
 
         improved = fitness < pbest_current_fitness
 
+        self.pbest_age += 1
+
+        self.pbest_age[improved] = 0
+
         self.pbest_particles[improved] = self.particles[improved]
+
         self.pbest_fitness = pbest_current_fitness
         self.pbest_fitness[improved] = fitness[improved]
 
@@ -158,8 +174,12 @@ class DHParticleSwarmOptimizer:
                     - self.particles[i]
                 )
             )
-            
-        self.velocities = self.w * self.velocities + cognitive + social
+        adaptive_w = self.compute_adaptive_inertia()
+        self.velocities = (
+            adaptive_w * self.velocities
+            + cognitive
+            + social
+        )
 
         self.velocities = torch.clamp(
             self.velocities,
@@ -264,7 +284,13 @@ class DHParticleSwarmOptimizer:
         elite_particles = neighbor_particles[elite_idx]
         elite_fitness = neighbor_fitness[elite_idx]
 
-        weights = 1.0 / (elite_fitness + 1e-8)
+        elite_ages = self.pbest_age[neighbors][elite_idx]
+
+        fitness_weights = 1.0 / (elite_fitness + 1e-8)
+
+        age_weights = torch.exp(-self.age_lambda * elite_ages)
+
+        weights = (fitness_weights* age_weights)
 
         weights = weights / torch.sum(weights)
 
@@ -274,3 +300,21 @@ class DHParticleSwarmOptimizer:
         )
 
         return elite_center
+
+    def compute_adaptive_inertia(self):
+
+        if len(self.velocity_diversity_history) == 0:
+            return self.w_max
+
+        dv = self.velocity_diversity_history[-1]
+
+        normalized_dv = min(
+            dv / self.reference_dv,
+            1.0
+        )
+
+        w = self.w_max - (
+            self.w_max - self.w_min
+        ) * normalized_dv
+
+        return float(w)

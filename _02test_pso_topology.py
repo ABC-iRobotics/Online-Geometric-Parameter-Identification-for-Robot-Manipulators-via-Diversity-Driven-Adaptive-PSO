@@ -2,7 +2,7 @@ import time
 import torch
 
 from utils import *
-from pso import DHParticleSwarmOptimizer
+from _2pso_topology import DHParticleSwarmOptimizer
 
 
 def main():
@@ -142,7 +142,9 @@ def main():
                 f"Measurement {k + 1:04d}/{K} | "
                 f"Best fitness: {best_fitness.item():.8f} | "
                 f"Time: {measurement_time:.4f}s | "
-                f"FK/s: {fk_per_second:,.0f}"
+                f"FK/s: {fk_per_second:,.0f} | "
+                f"Dx: {optimizer.diversity_history[-1]:.6f} | "
+                f"Dv: {optimizer.velocity_diversity_history[-1]:.6f}"
             )
 
     if device == "cuda":

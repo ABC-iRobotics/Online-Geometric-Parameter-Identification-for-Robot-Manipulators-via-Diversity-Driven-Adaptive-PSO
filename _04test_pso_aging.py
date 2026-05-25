@@ -2,7 +2,7 @@ import time
 import torch
 
 from utils import *
-from Hibrid_pso_Topology import DHParticleSwarmOptimizer
+from _4pso_aging import DHParticleSwarmOptimizer
 
 
 def main():
