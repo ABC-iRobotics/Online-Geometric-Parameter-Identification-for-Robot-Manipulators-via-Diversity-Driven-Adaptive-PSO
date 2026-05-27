@@ -10,7 +10,7 @@ class PSO:
         lower_bounds,
         upper_bounds,
         joint_types=None,
-        num_particles=256,
+        num_particles=32,
         w=0.7,
         c1=1.5,
         c2=1.5,

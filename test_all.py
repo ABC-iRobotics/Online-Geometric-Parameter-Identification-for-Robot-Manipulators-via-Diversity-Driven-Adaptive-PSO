@@ -10,6 +10,9 @@ from _2pso import PSO_topology
 from _3pso import PSO_topology_elit
 from _4pso import PSO_aging
 from _5pso import PSO_final
+from _6de  import DEOptimizer
+from _7ga  import GAOptimizer
+from _8apso import APSO
 
 def generate_joint_trajectory(
     trajectory_id,
@@ -299,9 +302,9 @@ def main():
 
     methods = {
         "PSO": PSO,
-        "PSO_topology": PSO_topology,
-        "PSO_ring_elite": PSO_topology_elit,
-        "PSO_aging": PSO_aging,
+        "DE": DEOptimizer,
+        "GA": GAOptimizer,
+        "APSO": APSO,
         "PSO_final": PSO_final,
     }
 

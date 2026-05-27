@@ -9,6 +9,9 @@ from _2pso import PSO_topology as PSO_2
 from _3pso import PSO_topology_elit as PSO_3
 from _4pso import PSO_aging as PSO_4
 from _5pso import PSO_final as PSO_5
+from _6de import DEOptimizer as DE
+from _7ga import GAOptimizer as GA
+from _8apso import APSO
 
 import argparse
 
@@ -18,6 +21,9 @@ PSO_VARIANTS = {
     "PSO_3": PSO_3,
     "PSO_4": PSO_4,
     "PSO_5": PSO_5,
+    "GA": GA,
+    "DE": DE,
+    "APSO": APSO
 }
 
 def main():
@@ -40,7 +46,7 @@ def main():
 
     print("Device:", device)
 
-    seed = 1
+    seed = 0
 
     torch.manual_seed(seed)
     np.random.seed(seed)
