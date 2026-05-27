@@ -301,11 +301,13 @@ def main():
     seeds = range(20)
 
     methods = {
-        "PSO": PSO,
-        "DE": DEOptimizer,
-        "GA": GAOptimizer,
+        #"PSO": PSO,
+        #"PSO_topology": PSO_topology,
+        #"PSO_topology_aging": PSO_aging,
+        #"DE": DEOptimizer,
+        #"GA": GAOptimizer,
         "APSO": APSO,
-        "PSO_final": PSO_final,
+        #"PSO_final": PSO_final,
     }
 
     results = []

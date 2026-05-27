@@ -78,7 +78,6 @@ class PSO_final:
 
         self.w_min = 0.4
         self.w_max = 0.9
-        self.reference_dv = 0.001
         self.age_lambda = 0.02
 
         self.reference_dx = 0.005
