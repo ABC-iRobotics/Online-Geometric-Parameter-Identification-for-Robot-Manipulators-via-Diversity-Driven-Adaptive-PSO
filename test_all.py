@@ -304,9 +304,9 @@ def main():
         #"PSO": PSO,
         #"PSO_topology": PSO_topology,
         #"PSO_topology_aging": PSO_aging,
-        #"DE": DEOptimizer,
+        "DE": DEOptimizer,
         #"GA": GAOptimizer,
-        "APSO": APSO,
+        #"APSO": APSO,
         #"PSO_final": PSO_final,
     }
 
