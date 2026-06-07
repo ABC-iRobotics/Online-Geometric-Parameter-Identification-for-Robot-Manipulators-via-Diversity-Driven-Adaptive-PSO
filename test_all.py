@@ -7,9 +7,8 @@ import csv
 from utils import *
 from _1pso import PSO
 from _2pso import PSO_topology
-from _3pso import PSO_topology_elit
-from _4pso import PSO_aging
-from _5pso import PSO_final
+from _3pso import PSO_aging
+from _4pso import PSO_final
 from _6de  import DEOptimizer
 from _7ga  import GAOptimizer
 from _8apso import APSO
@@ -54,7 +53,7 @@ def generate_joint_trajectory(
     elif trajectory_id == "random_smooth":
         raw = torch.randn(K, N, device=device, dtype=dtype)
 
-        window = 25
+        window = 10
         kernel = torch.ones(window, device=device, dtype=dtype) / window
 
         for i in range(N):
@@ -86,7 +85,7 @@ def run_single_experiment(
     optimizer_class,
     K=500,
     P=32,
-    pso_iterations_per_measurement=5,
+    pso_iterations_per_measurement=20,
     device=None,
     dtype=torch.float32,
 ):
@@ -153,7 +152,7 @@ def run_single_experiment(
         c1=1.5,
         c2=1.5,
         position_weight=1.0,
-        orientation_weight=0.1,
+        orientation_weight=1.0,
         device=device,
         dtype=dtype,
         vmax_scale=0.1,
@@ -201,7 +200,7 @@ def run_single_experiment(
             T_measured=T_measured,
             T_particles=T_nominal,
             position_weight=1.0,
-            orientation_weight=0.1,
+            orientation_weight=1.0,
             reduction="mean",
         )[0]
 
@@ -215,7 +214,7 @@ def run_single_experiment(
             T_measured=T_measured,
             T_particles=T_best,
             position_weight=1.0,
-            orientation_weight=0.1,
+            orientation_weight=1.0,
             reduction="mean",
         )[0]
 

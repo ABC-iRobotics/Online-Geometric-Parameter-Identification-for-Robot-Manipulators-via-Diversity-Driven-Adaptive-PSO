@@ -1,9 +1,11 @@
+from numpy._core import fromnumeric
 import torch
+import numpy as np
 
 from utils import forward_kinematics_particles, particle_fitness
 
 
-class PSO_topology_elit:
+class PSO_aging:
     def __init__(
         self,
         nominal_dh,
@@ -15,12 +17,12 @@ class PSO_topology_elit:
         c1=1.5,
         c2=1.5,
         position_weight=1.0,
-        orientation_weight=0.1,
+        orientation_weight=1.0,
         device=None,
         dtype=torch.float32,
         vmax_scale=0.1,
+        topology="ring",
         neighborhood_size=1,
-        elite_size=1,
         
         
     ):
@@ -53,6 +55,11 @@ class PSO_topology_elit:
             device=self.device,
             dtype=self.dtype,
         )
+        self.pbest_age = torch.zeros(
+            self.P,
+            device=self.device,
+            dtype=self.dtype,
+        )
 
         self.gbest_particle = None
         self.gbest_fitness = torch.tensor(
@@ -66,8 +73,10 @@ class PSO_topology_elit:
         self.diversity_history = []
         self.velocity_diversity_history = []
 
+        self.topology = topology
         self.neighborhood_size = neighborhood_size
-        self.elite_size = elite_size
+
+        self.age_lambda = 0.1
 
     def initialize_particles(self):
         """
@@ -126,6 +135,10 @@ class PSO_topology_elit:
 
         improved = fitness < pbest_current_fitness
 
+        self.pbest_age += 1
+
+        self.pbest_age[improved] = 0
+
         self.pbest_particles[improved] = self.particles[improved]
         self.pbest_fitness = pbest_current_fitness
         self.pbest_fitness[improved] = fitness[improved]
@@ -147,31 +160,29 @@ class PSO_topology_elit:
 
         for i in range(self.P):
 
-            elite_center = self.compute_local_elite(i)
+            local_best = self.compute_local_best(i)
 
             social[i] = (
                 self.c2
                 * r2[i]
                 * (
-                    elite_center
+                    local_best
                     - self.particles[i]
                 )
             )
-            
-        self.velocities = self.w * self.velocities + cognitive + social
 
+        self.velocities =self.w * self.velocities + cognitive + social
+
+        '''
         self.velocities = torch.clamp(
             self.velocities,
             min=-self.vmax,
             max=self.vmax
         )
+        '''
 
         self.particles = self.particles + self.velocities
 
-        self.particles = torch.maximum(
-            torch.minimum(self.particles, self.upper_bounds),
-            self.lower_bounds,
-        )
 
     def step(self, joint_values, T_measured):
         fitness = self.evaluate(joint_values, T_measured)
@@ -236,27 +247,20 @@ class PSO_topology_elit:
         )
 
 
-    def compute_local_elite(self, particle_idx):
+    def compute_local_best(self, particle_idx):
 
         neighbors = self.get_neighbors(particle_idx)
 
         neighbor_particles = self.pbest_particles[neighbors]
         neighbor_fitness = self.pbest_fitness[neighbors]
+        neighbor_ages = self.pbest_age[neighbors]
 
-        sorted_idx = torch.argsort(neighbor_fitness)
+        age_weights = torch.exp(-(self.age_lambda)*neighbor_ages)
 
-        elite_idx = sorted_idx[:self.elite_size]
+        scores = neighbor_fitness * age_weights
 
-        elite_particles = neighbor_particles[elite_idx]
-        elite_fitness = neighbor_fitness[elite_idx]
+        best_local_idx = torch.argmax(scores)
 
-        weights = 1.0 / (elite_fitness + 1e-8)
+        local_best = neighbor_particles[best_local_idx]
 
-        weights = weights / torch.sum(weights)
-
-        elite_center = torch.sum(
-            weights.view(-1,1,1) * elite_particles,
-            dim=0
-        )
-
-        return elite_center
+        return local_best

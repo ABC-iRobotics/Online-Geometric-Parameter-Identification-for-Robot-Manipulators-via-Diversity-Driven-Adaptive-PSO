@@ -15,12 +15,12 @@ class DEOptimizer:
         c1=1.5,     # nem használjuk
         c2=1.5,     # nem használjuk
         position_weight=1.0,
-        orientation_weight=0.1,
+        orientation_weight=1.0,
         device=None,
         dtype=torch.float32,
         vmax_scale=0.1,  # nem használjuk
         F=0.7,
-        CR=0.9,
+        CR=0.7,
     ):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.dtype = dtype

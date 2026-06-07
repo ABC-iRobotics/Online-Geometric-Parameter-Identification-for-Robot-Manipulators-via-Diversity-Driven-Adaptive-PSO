@@ -6,9 +6,8 @@ import numpy as np
 from utils import *
 from _1pso import PSO as PSO_1
 from _2pso import PSO_topology as PSO_2
-from _3pso import PSO_topology_elit as PSO_3
-from _4pso import PSO_aging as PSO_4
-from _5pso import PSO_final as PSO_5
+from _3pso import PSO_aging as PSO_3
+from _4pso import PSO_final as PSO_4
 from _6de import DEOptimizer as DE
 from _7ga import GAOptimizer as GA
 from _8apso import APSO
@@ -20,7 +19,6 @@ PSO_VARIANTS = {
     "PSO_2": PSO_2,
     "PSO_3": PSO_3,
     "PSO_4": PSO_4,
-    "PSO_5": PSO_5,
     "GA": GA,
     "DE": DE,
     "APSO": APSO
@@ -151,7 +149,7 @@ def main():
     # ONLINE / STREAMING PSO
     # ------------------------------------------------------------
 
-    pso_iterations_per_measurement = 5
+    pso_iterations_per_measurement = 20
     history = []
 
     if device == "cuda":

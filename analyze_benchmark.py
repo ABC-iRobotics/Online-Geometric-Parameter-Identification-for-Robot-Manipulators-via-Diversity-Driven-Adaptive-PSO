@@ -1,12 +1,13 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
+import numpy as np 
 
 # ------------------------------------------------------------
 # Settings
 # ------------------------------------------------------------
 
-CSV_PATH = "benchmark_results_1.csv"
+CSV_PATH = "Final.csv"
 
 OUT_DIR = Path("benchmark_analysis")
 OUT_DIR.mkdir(exist_ok=True)
@@ -183,6 +184,11 @@ def save_boxplot(metric, ylabel, filename):
         by="method",
         rot=20,
         ax=ax,
+        boxprops=dict(linewidth=2.0),
+        whiskerprops=dict(linewidth=2.0),
+        capprops=dict(linewidth=2.0),
+        medianprops=dict(linewidth=3.0),
+        flierprops=dict(marker='o', markerfacecolor='black', markersize=5, markeredgecolor='black'),
     )
 
     # Remove automatic pandas title
@@ -248,7 +254,7 @@ save_boxplot(
 
 save_boxplot(
     "runtime_per_measurement",
-    "Runtime per measurement [s]",
+    "Runtime per iteration [s]",
     "boxplot_runtime.png",
 )
 
@@ -265,7 +271,7 @@ save_boxplot(
 pivot_dh = df.pivot_table(
     index="trajectory_id",
     columns="method",
-    values="absolute_DH_error_mean",
+    values="optimized_fitness",
     aggfunc="mean",
     observed=True,
 )
@@ -285,14 +291,20 @@ plt.figure(figsize=(11, 5))
 
 ax = plt.gca()
 
+vmin = pivot_dh.values.min()
+vmax = np.percentile(pivot_dh.values, 85)
+
 im = ax.imshow(
     pivot_dh.values,
     aspect="auto",
+    vmin=vmin,
+    vmax=vmax,
+    cmap="viridis",
 )
 
 cbar = plt.colorbar(im)
 cbar.set_label(
-    "Mean absolute DH error",
+    "Optimized fitness",
     fontsize=15,
     fontweight="bold",
 )

@@ -15,7 +15,7 @@ class PSO:
         c1=1.5,
         c2=1.5,
         position_weight=1.0,
-        orientation_weight=0.1,
+        orientation_weight=1.0,
         device=None,
         dtype=torch.float32,
         vmax_scale=0.1
@@ -148,11 +148,6 @@ class PSO:
         )
 
         self.particles = self.particles + self.velocities
-
-        self.particles = torch.maximum(
-            torch.minimum(self.particles, self.upper_bounds),
-            self.lower_bounds,
-        )
 
     def step(self, joint_values, T_measured):
         fitness = self.evaluate(joint_values, T_measured)

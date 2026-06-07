@@ -15,7 +15,7 @@ class GAOptimizer:
         c1=1.5,             # nem használjuk
         c2=1.5,             # nem használjuk
         position_weight=1.0,
-        orientation_weight=0.1,
+        orientation_weight=1.0,
         device=None,
         dtype=torch.float32,
         vmax_scale=0.1,     # mutation skálához használjuk

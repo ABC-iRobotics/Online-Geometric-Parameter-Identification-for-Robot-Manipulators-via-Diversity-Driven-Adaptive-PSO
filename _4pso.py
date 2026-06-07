@@ -1,10 +1,11 @@
+from numpy._core import fromnumeric
 import torch
 import numpy as np
 
 from utils import forward_kinematics_particles, particle_fitness
 
 
-class PSO_aging:
+class PSO_final:
     def __init__(
         self,
         nominal_dh,
@@ -16,13 +17,12 @@ class PSO_aging:
         c1=1.5,
         c2=1.5,
         position_weight=1.0,
-        orientation_weight=0.1,
+        orientation_weight=1.0,
         device=None,
         dtype=torch.float32,
         vmax_scale=0.1,
         topology="ring",
         neighborhood_size=1,
-        elite_size=1,
         
     ):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -74,9 +74,18 @@ class PSO_aging:
 
         self.topology = topology
         self.neighborhood_size = neighborhood_size
-        self.elite_size = elite_size
 
-        self.age_lambda = 0.02
+        self.w_min = 0.4
+        self.w_max = 0.9
+        self.age_lambda = 0.1
+
+        self.reference_dx = 0.015
+        self.reference_dv = 0.0015
+
+        self.current_w = self.w
+        self.current_c1 = self.c1
+        self.current_c2 = self.c2
+        self.current_vmax_scale = self.vmax_scale
 
     def initialize_particles(self):
         """
@@ -150,30 +159,38 @@ class PSO_aging:
         self.gbest_particle = self.pbest_particles[best_idx].clone()
     
     def update_particles(self):
+
+        self.update_fuzzy_parameters()
+
         if self.gbest_particle is None:
             return
 
         r1 = torch.rand_like(self.particles)
         r2 = torch.rand_like(self.particles)
 
-        cognitive = self.c1 * r1 * (self.pbest_particles - self.particles)
+        cognitive = (
+            self.current_c1
+            * r1
+            * (self.pbest_particles - self.particles)
+        )
+
         social = torch.zeros_like(self.particles)
 
         for i in range(self.P):
 
-            elite_center = self.compute_local_elite(i)
+            local_best = self.compute_local_best(i)
 
             social[i] = (
-                self.c2
+                self.current_c2
                 * r2[i]
                 * (
-                    elite_center
+                    local_best
                     - self.particles[i]
                 )
             )
 
         self.velocities = (
-            self.w * self.velocities
+            self.current_w * self.velocities
             + cognitive
             + social
         )
@@ -267,33 +284,68 @@ class PSO_aging:
             )
 
 
-    def compute_local_elite(self, particle_idx):
+    def compute_local_best(self, particle_idx):
 
         neighbors = self.get_neighbors(particle_idx)
 
         neighbor_particles = self.pbest_particles[neighbors]
         neighbor_fitness = self.pbest_fitness[neighbors]
+        neighbor_ages = self.pbest_age[neighbors]
 
-        sorted_idx = torch.argsort(neighbor_fitness)
+        age_weights = torch.exp(-(self.age_lambda) * neighbor_ages)
 
-        elite_idx = sorted_idx[:self.elite_size]
+        scores = neighbor_fitness * age_weights
 
-        elite_particles = neighbor_particles[elite_idx]
-        elite_fitness = neighbor_fitness[elite_idx]
+        best_local_idx = torch.argmax(scores)
 
-        elite_ages = self.pbest_age[neighbors][elite_idx]
+        local_best = neighbor_particles[best_local_idx]
 
-        fitness_weights = 1.0 / (elite_fitness + 1e-8)
+        return local_best
 
-        age_weights = torch.exp(-self.age_lambda * elite_ages)
+    def update_fuzzy_parameters(self):
 
-        weights = (fitness_weights* age_weights)
+        if len(self.diversity_history) == 0:
+            return
 
-        weights = weights / torch.sum(weights)
+        dx = self.diversity_history[-1]
+        dv = self.velocity_diversity_history[-1]
 
-        elite_center = torch.sum(
-            weights.view(-1,1,1) * elite_particles,
-            dim=0
+        dx_n = min(dx / self.reference_dx, 1.0)
+        dv_n = min(dv / self.reference_dv, 1.0)
+
+        collapse = (1.0 - dx_n) * (1.0 - dv_n)
+        active_exploration = dx_n * dv_n
+        frozen_spread = dx_n * (1.0 - dv_n)
+        unstable_motion = (1.0 - dx_n) * dv_n
+
+        self.current_w = (
+            collapse * self.w_max +
+            active_exploration * self.w_min +
+            frozen_spread * 0.75 +
+            unstable_motion * 0.55
         )
 
-        return elite_center
+        self.current_c1 = (
+            collapse * 2.0 +
+            active_exploration * 1.4 +
+            frozen_spread * 1.2 +
+            unstable_motion * 1.5
+        )
+
+        self.current_c2 = (
+            collapse * 1.0 +
+            active_exploration * 1.8 +
+            frozen_spread * 2.0 +
+            unstable_motion * 1.2
+        )
+
+        self.current_vmax_scale = (
+            collapse * 0.15 +
+            active_exploration * 0.06 +
+            frozen_spread * 0.08 +
+            unstable_motion * 0.05
+        )
+
+        self.vmax = self.current_vmax_scale * (
+            self.upper_bounds - self.lower_bounds
+        )
