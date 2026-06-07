@@ -300,13 +300,13 @@ def main():
     seeds = range(20)
 
     methods = {
-        #"PSO": PSO,
-        #"PSO_topology": PSO_topology,
-        #"PSO_topology_aging": PSO_aging,
+        "PSO": PSO,
+        "PSO_topology": PSO_topology,
+        "PSO_topology_aging": PSO_aging,
         "DE": DEOptimizer,
-        #"GA": GAOptimizer,
-        #"APSO": APSO,
-        #"PSO_final": PSO_final,
+        "GA": GAOptimizer,
+        "APSO": APSO,
+        "PSO_final": PSO_final,
     }
 
     results = []
