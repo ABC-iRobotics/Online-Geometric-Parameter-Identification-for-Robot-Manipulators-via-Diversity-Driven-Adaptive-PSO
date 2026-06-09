@@ -175,7 +175,7 @@ traj_summary.to_csv(
 # ------------------------------------------------------------
 
 def save_boxplot(metric, ylabel, filename):
-    plt.figure(figsize=(11, 5))
+    plt.figure(figsize=(11, 8.5))
 
     ax = plt.gca()
 
@@ -189,6 +189,32 @@ def save_boxplot(metric, ylabel, filename):
         capprops=dict(linewidth=2.0),
         medianprops=dict(linewidth=3.0),
         flierprops=dict(marker='o', markerfacecolor='black', markersize=5, markeredgecolor='black'),
+    )
+    ax.set_yscale("log")
+    ax.grid(
+        True,
+        axis="y",
+        linestyle="--",
+        linewidth=0.8,
+        alpha=0.5,
+    )
+
+    from matplotlib.ticker import LogLocator
+
+    ax.yaxis.set_minor_locator(
+        LogLocator(
+            base=10,
+            subs=np.arange(2, 10) * 0.1
+        )
+    )
+
+    ax.grid(
+        True,
+        axis="y",
+        which="minor",
+        linestyle="--",
+        linewidth=0.5,
+        alpha=0.5,
     )
 
     # Remove automatic pandas title
@@ -238,6 +264,7 @@ def save_boxplot(metric, ylabel, filename):
         bbox_inches="tight",
     )
 
+    
     plt.close()
 
 save_boxplot(
@@ -248,7 +275,7 @@ save_boxplot(
 
 save_boxplot(
     "optimized_fitness",
-    "Optimized fitness",
+    "Optimized fitness (log scale)",
     "boxplot_fitness.png",
 )
 
