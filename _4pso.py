@@ -296,7 +296,7 @@ class PSO_final:
 
         scores = neighbor_fitness * age_weights
 
-        best_local_idx = torch.argmax(scores)
+        best_local_idx = torch.argmin(scores)
 
         local_best = neighbor_particles[best_local_idx]
 
